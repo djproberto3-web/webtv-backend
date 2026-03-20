@@ -21,16 +21,30 @@ wss.on('connection', (ws) => {
 
   ws.on('message', (message) => {
 
+    let data;
+
+    // 🔒 Garantir que é JSON válido
+    try {
+      data = JSON.parse(message);
+    } catch {
+      return;
+    }
+
+    // 🎯 Só processa reações
+    if (data.type !== "reaction") return;
+
     const user = userLimits.get(ws);
+    if (!user) return;
+
     const now = Date.now();
 
-    // recarrega tokens a cada 10s
+    // 🔄 Recarregar tokens
     if (now - user.lastRefill > REFILL_TIME) {
       user.tokens = MAX_TOKENS;
       user.lastRefill = now;
     }
 
-    // bloqueia flood
+    // 🚫 Anti-flood
     if (user.tokens <= 0) {
       ws.send(JSON.stringify({ type: "limit" }));
       return;
@@ -38,13 +52,14 @@ wss.on('connection', (ws) => {
 
     user.tokens--;
 
-    // valida emojis permitidos
+    // ✅ Emojis permitidos
     const allowed = ["❤️","😂","🔥","👍","😮"];
-    if (!allowed.includes(message.toString())) return;
+    if (!allowed.includes(data.data)) return;
 
+    // 📡 BROADCAST PARA TODOS
     broadcast(JSON.stringify({
       type: "reaction",
-      data: message.toString()
+      data: data.data
     }));
   });
 
@@ -55,6 +70,7 @@ wss.on('connection', (ws) => {
   });
 });
 
+// 📡 Broadcast geral
 function broadcast(msg) {
   clients.forEach(c => {
     if (c.readyState === WebSocket.OPEN) {
@@ -63,6 +79,7 @@ function broadcast(msg) {
   });
 }
 
+// 👥 Atualiza contador de usuários
 function broadcastUsers() {
   const total = clients.size;
 
@@ -78,4 +95,4 @@ function broadcastUsers() {
   });
 }
 
-console.log("Servidor WebSocket rodando...");
+console.log("✅ Servidor WebSocket rodando...");
