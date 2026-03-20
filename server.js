@@ -1,50 +1,41 @@
 const WebSocket = require('ws');
 
-const wss = new WebSocket.Server({ port: process.env.PORT || 10000 });
+const PORT = process.env.PORT || 10000;
+const wss = new WebSocket.Server({ port: PORT });
 
-let clients = new Set();
-const userLimits = new Map();
+console.log(`Servidor WebSocket rodando na porta ${PORT}...`);
 
-const MAX_TOKENS = 3;
-const REFILL_TIME = 10000;
+let clients = new Set();             // Todos os clientes conectados
+const userLimits = new Map();        // Limite de tokens por usuário
+
+const MAX_TOKENS = 3;                // Número máximo de reações em 10s
+const REFILL_TIME = 10000;           // 10s para recarregar tokens
+
+// Cores permitidas para reações
+const allowedReactions = ["❤️","😂","🔥","👍","😮"];
 
 wss.on('connection', (ws) => {
-
+  // Adiciona cliente
   clients.add(ws);
 
-  userLimits.set(ws, {
-    tokens: MAX_TOKENS,
-    lastRefill: Date.now()
-  });
+  // Inicializa tokens
+  userLimits.set(ws, { tokens: MAX_TOKENS, lastRefill: Date.now() });
 
+  // Atualiza contador de usuários para todos
   broadcastUsers();
 
+  // Recebe mensagens de reação
   ws.on('message', (message) => {
-
-    let data;
-
-    // 🔒 Garantir que é JSON válido
-    try {
-      data = JSON.parse(message);
-    } catch {
-      return;
-    }
-
-    // 🎯 Só processa reações
-    if (data.type !== "reaction") return;
-
     const user = userLimits.get(ws);
-    if (!user) return;
-
     const now = Date.now();
 
-    // 🔄 Recarregar tokens
+    // Recarrega tokens a cada REFILL_TIME
     if (now - user.lastRefill > REFILL_TIME) {
       user.tokens = MAX_TOKENS;
       user.lastRefill = now;
     }
 
-    // 🚫 Anti-flood
+    // Bloqueio de flood
     if (user.tokens <= 0) {
       ws.send(JSON.stringify({ type: "limit" }));
       return;
@@ -52,15 +43,17 @@ wss.on('connection', (ws) => {
 
     user.tokens--;
 
-    // ✅ Emojis permitidos
-    const allowed = ["❤️","😂","🔥","👍","😮"];
-    if (!allowed.includes(data.data)) return;
+    let msg;
+    try {
+      msg = JSON.parse(message);
+    } catch {
+      return; // Mensagem inválida
+    }
 
-    // 📡 BROADCAST PARA TODOS
-    broadcast(JSON.stringify({
-      type: "reaction",
-      data: data.data
-    }));
+    if (msg.type === "reaction" && allowedReactions.includes(msg.data)) {
+      // Broadcast da reação para todos
+      broadcast(JSON.stringify({ type: "reaction", data: msg.data }));
+    }
   });
 
   ws.on('close', () => {
@@ -70,7 +63,7 @@ wss.on('connection', (ws) => {
   });
 });
 
-// 📡 Broadcast geral
+// Função de broadcast
 function broadcast(msg) {
   clients.forEach(c => {
     if (c.readyState === WebSocket.OPEN) {
@@ -79,20 +72,9 @@ function broadcast(msg) {
   });
 }
 
-// 👥 Atualiza contador de usuários
+// Broadcast do contador de usuários
 function broadcastUsers() {
   const total = clients.size;
-
-  const payload = JSON.stringify({
-    type: "users",
-    data: total
-  });
-
-  clients.forEach(c => {
-    if (c.readyState === WebSocket.OPEN) {
-      c.send(payload);
-    }
-  });
+  const payload = JSON.stringify({ type: "users", data: total });
+  broadcast(payload);
 }
-
-console.log("✅ Servidor WebSocket rodando...");
